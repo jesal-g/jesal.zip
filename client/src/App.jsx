@@ -1,17 +1,25 @@
-import { useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import "./styles.css";
 import BouncingZip from "./components/BouncingZip";
 import UncompressWindow from "./components/UncompressWindow";
 import ReadMeWindow from "./components/ReadMeWindow";
 import ImageWindow from "./components/ImageWindow";
 import ProjectsWindow from "./components/ProjectsWindow";
-import ReactiveBackground from "./components/ReactiveBackground";
 import { motion } from "framer-motion";
+
+// p5 is most of the bundle; load it separately so the zip icon shows right away
+const loadBackground = () => import("./components/ReactiveBackground");
+const ReactiveBackground = lazy(loadBackground);
 
 const App = () => {
   const [isUncompressing, setIsUncompressing] = useState(false);
   const [isUncompressed, setIsUncompressed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Start fetching the background while the visitor looks at the zip icon
+  useEffect(() => {
+    loadBackground();
+  }, []);
 
   const handleZipClick = () => {
     setIsUncompressing(true);
@@ -50,12 +58,16 @@ const App = () => {
           transition={{ duration: 3 }}
           className="absolute inset-0"
         >
-          <ReactiveBackground />
+          <Suspense fallback={null}>
+            <ReactiveBackground />
+          </Suspense>
         </motion.div>
       )}
       {isUncompressed && (
         <div className="absolute inset-0">
-          <ReactiveBackground />
+          <Suspense fallback={null}>
+            <ReactiveBackground />
+          </Suspense>
         </div>
       )}
       <div className="absolute inset-0 flex items-center justify-center">
