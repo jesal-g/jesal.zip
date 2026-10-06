@@ -10,7 +10,7 @@ export default defineConfig({
       // Each HTML file is its own page: / and /leetcode
       input: {
         main: fileURLToPath(new URL("index.html", import.meta.url)),
-        leetcode: fileURLToPath(new URL("leetcode.html", import.meta.url)),
+        leetcode: fileURLToPath(new URL("leetcode/index.html", import.meta.url)),
       },
     },
   },
