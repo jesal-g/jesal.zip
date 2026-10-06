@@ -9,7 +9,8 @@ import {
   relative,
   weekStart,
 } from "./srs";
-import { load, mergeBackup, save, toBackup } from "./storage";
+import * as api from "./api";
+import { clearLegacy, loadLegacy, newerRecords, parseBackup, toBackup } from "./storage";
 
 const ReactiveBackground = lazy(() => import("../components/ReactiveBackground"));
 
@@ -82,9 +83,14 @@ const Pill = ({ children, className = "bg-gray-100 text-gray-700" }) => (
 const LeetcodeApp = () => {
   const { catalog, failed: catalogFailed } = useCatalog();
   const today = useToday();
-  const [{ ok: storageOk, problems: initial }] = useState(load);
-  const [problems, setProblems] = useState(initial);
-  const [saveFailed, setSaveFailed] = useState(!storageOk);
+  // auth: "checking" | "unconfigured" | "out" | "in"
+  const [auth, setAuth] = useState("checking");
+  const [problems, setProblems] = useState({});
+  const [loadError, setLoadError] = useState("");
+  const [legacy, setLegacy] = useState(loadLegacy);
+  const [code, setCode] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
   const [num, setNum] = useState("");
   const [note, setNote] = useState("");
   const [toast, setToast] = useState("");
@@ -99,9 +105,65 @@ const LeetcodeApp = () => {
     return () => clearTimeout(id);
   }, [toast]);
 
-  const commit = (next) => {
+  const loadProblems = async () => {
+    try {
+      setProblems(await api.getProblems());
+      setLoadError("");
+      setAuth("in");
+    } catch (e) {
+      if (e.status === 401) setAuth("out");
+      else setLoadError(e.message);
+    }
+  };
+
+  useEffect(() => {
+    api
+      .getSession()
+      .then((s) => {
+        if (!s.configured) setAuth("unconfigured");
+        else if (s.authed) loadProblems();
+        else setAuth("out");
+      })
+      .catch(() => setLoadError("Couldn't reach the server. Reload to try again."));
+  }, []);
+
+  const submitLogin = async (e) => {
+    e.preventDefault();
+    if (loggingIn) return;
+    setLoggingIn(true);
+    setLoginError("");
+    try {
+      await api.login(code.trim());
+      setCode("");
+      await loadProblems();
+    } catch (err) {
+      setLoginError(err.message);
+    }
+    setLoggingIn(false);
+  };
+
+  const signOut = async () => {
+    await api.logout().catch(() => {});
+    setProblems({});
+    setAuth("out");
+  };
+
+  // Save records to the database, updating the page first and undoing on failure.
+  const saveAll = async (records, successMsg) => {
+    const before = problems;
+    const next = { ...problems };
+    for (const r of records) next[String(r.num)] = r;
     setProblems(next);
-    setSaveFailed(!save(next));
+    try {
+      await api.saveRecords(records);
+      if (successMsg) setToast(successMsg);
+      return true;
+    } catch (e) {
+      setProblems(before);
+      if (e.status === 401) setAuth("out");
+      setToast(`Not saved: ${e.message}`);
+      return false;
+    }
   };
 
   // Stored records joined with catalog details
@@ -138,8 +200,8 @@ const LeetcodeApp = () => {
   const record = (n, result, noteText = "") => {
     const key = String(n);
     const updated = applyAttempt(problems[key], Number(n), result, noteText.trim(), today);
-    commit({ ...problems, [key]: updated });
-    setToast(
+    saveAll(
+      [updated],
       updated.mastered
         ? `#${n} mastered. Out of rotation.`
         : `#${n}: next review ${niceDate(updated.next)} (${relative(updated.next, today)})`
@@ -164,11 +226,18 @@ const LeetcodeApp = () => {
       setTimeout(() => setConfirmDelete((c) => (c === key ? null : c)), 4000);
       return;
     }
+    const before = problems;
     const next = { ...problems };
     delete next[key];
-    commit(next);
+    setProblems(next);
     setConfirmDelete(null);
-    setToast(`Deleted #${key}`);
+    api
+      .deleteProblem(key)
+      .then(() => setToast(`Deleted #${key}`))
+      .catch((e) => {
+        setProblems(before);
+        setToast(`Not deleted: ${e.message}`);
+      });
   };
 
   const download = () => {
@@ -185,12 +254,24 @@ const LeetcodeApp = () => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+    let incoming;
     try {
-      const { merged, added, updated } = mergeBackup(problems, await file.text());
-      commit(merged);
-      setToast(`Restored: ${added} added, ${updated} updated`);
+      incoming = parseBackup(await file.text());
     } catch {
       setToast("That file isn't a backup from this page.");
+      return;
+    }
+    const records = newerRecords(problems, incoming);
+    if (records.length === 0) setToast("Nothing new in that backup.");
+    else saveAll(records, `Restored ${records.length} problem${records.length > 1 ? "s" : ""}`);
+  };
+
+  // Problems saved in this browser by the old browser-only version
+  const legacyNew = auth === "in" ? newerRecords(problems, legacy) : [];
+  const uploadLegacy = async () => {
+    if (await saveAll(legacyNew, `Uploaded ${legacyNew.length} problems from this browser`)) {
+      clearLegacy();
+      setLegacy({});
     }
   };
 
@@ -231,11 +312,30 @@ const LeetcodeApp = () => {
                 </div>
               ))}
             </div>
-            {saveFailed && (
-              <p className="rounded-lg bg-red-100 text-red-800 px-3 py-2 text-sm">
-                This browser isn&apos;t letting the page save (private window or blocked site data).
-                Changes will be lost when you close the tab. Download a backup before you leave.
+            {loadError && (
+              <p className="rounded-lg bg-red-100 text-red-800 px-3 py-2 text-sm">{loadError}</p>
+            )}
+            {auth === "unconfigured" && (
+              <p className="rounded-lg bg-yellow-100 text-yellow-900 px-3 py-2 text-sm">
+                The database isn&apos;t connected yet. Add the Upstash Redis store and the TOTP_SECRET and
+                SESSION_SECRET environment variables in Vercel, then redeploy.
               </p>
+            )}
+            {auth === "in" && legacyNew.length > 0 && (
+              <div className="rounded-lg bg-blue-50 text-blue-900 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+                <span>
+                  {legacyNew.length} problem{legacyNew.length > 1 ? "s are" : " is"} saved in this browser from before
+                  the database.
+                </span>
+                <button onClick={uploadLegacy} className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded">
+                  Upload to database
+                </button>
+              </div>
+            )}
+            {auth === "in" && (
+              <button onClick={signOut} className="justify-self-start text-xs text-gray-500 underline hover:text-gray-800">
+                Sign out on this device
+              </button>
             )}
             {catalogFailed && (
               <p className="rounded-lg bg-red-100 text-red-800 px-3 py-2 text-sm">
@@ -245,6 +345,42 @@ const LeetcodeApp = () => {
           </div>
         </Window>
 
+        {auth === "out" && (
+          <Window width="w-full" height="h-auto" title="🔐 login.sh">
+            <form onSubmit={submitLogin} className="grid gap-3 max-w-sm">
+              <label className="grid gap-1 text-sm text-gray-500">
+                Google Authenticator code
+                <input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="123456"
+                  autoFocus
+                  className="w-full text-2xl tracking-[0.3em] text-gray-900 border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </label>
+              {loginError && <p className="text-sm text-red-600">{loginError}</p>}
+              <button
+                type="submit"
+                disabled={code.length !== 6 || loggingIn}
+                className="justify-self-start bg-gray-800 hover:bg-gray-700 text-white px-4 py-1.5 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {loggingIn ? "Checking…" : "Sign in"}
+              </button>
+              <p className="text-xs text-gray-500">This device stays signed in for 60 days.</p>
+            </form>
+          </Window>
+        )}
+
+        {auth === "checking" && !loadError && (
+          <Window width="w-full" height="h-auto" title="⏳ loading…">
+            <p className="text-gray-500">Loading your queue…</p>
+          </Window>
+        )}
+
+        {auth === "in" && (
+        <>
         <Window width="w-full" height="h-auto" title={`🔁 due_today.txt (${due.length})`}>
           {due.length === 0 ? (
             <p className="text-gray-500">
@@ -460,8 +596,8 @@ const LeetcodeApp = () => {
         <Window width="w-full" height="h-auto" title="💾 backup.json">
           <div className="grid gap-3 text-sm">
             <p className="text-gray-700">
-              Your problems are saved in this browser only. Download a backup now and then, and restore it to
-              move your queue to another device. Restoring merges: for a problem in both, the more recent copy wins.
+              Your problems are saved in your database and sync to any device you sign in on. You can also
+              download a copy. Restoring a backup merges it in: for a problem in both, the more recent copy wins.
             </p>
             <div className="flex flex-wrap gap-2">
               <button onClick={download} className="bg-gray-800 hover:bg-gray-700 text-white px-3 py-1.5 rounded">
@@ -479,6 +615,8 @@ const LeetcodeApp = () => {
             )}
           </div>
         </Window>
+        </>
+        )}
       </main>
 
       <div
