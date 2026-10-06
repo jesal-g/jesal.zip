@@ -4,7 +4,17 @@ const API = new URL("../api", import.meta.url).href;
 process.env.KV_REST_API_URL = "https://fake-redis"; process.env.KV_REST_API_TOKEN = "t";
 process.env.SESSION_SECRET = "test-session-secret"; process.env.TOTP_SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
 const store = new Map(), hashes = new Map();
+const githubCommits = [
+  { sha: "c2", commit: { message: "Add: kth-largest-integer-in-a-stream - submission-0", author: { date: "2026-06-21T19:25:59Z" } } },
+  { sha: "c1", commit: { message: "Initialize NeetCode solutions repository", author: { date: "2026-06-21T19:11:32Z" } } },
+];
+let githubCalls = 0;
 globalThis.fetch = async (url, opts) => {
+  if (String(url).startsWith("https://api.github.com/")) {
+    githubCalls++;
+    const since = new URL(url).searchParams.get("since");
+    return { ok: true, json: async () => githubCommits.filter((c) => !since || c.commit.author.date >= since) };
+  }
   const [cmd, ...a] = JSON.parse(opts.body); let result = null;
   switch (cmd) {
     case "GET": result = store.get(a[0]) ?? null; break;
@@ -23,6 +33,7 @@ const { totpAt } = await import(`${API}/_lib/auth.js`);
 const login = (await import(`${API}/login.js`)).default;
 const problems = (await import(`${API}/problems.js`)).default;
 const session = (await import(`${API}/session.js`)).default;
+const inbox = (await import(`${API}/inbox.js`)).default;
 function call(handler, { method = "GET", body, query, cookie, ip = "1.1.1.1" } = {}) {
   return new Promise((resolve) => {
     const res = { headers: {}, statusCode: 200, setHeader(k, v) { this.headers[k] = v; },
@@ -51,4 +62,12 @@ assert(!r.data.problems["146"], "delete works");
 for (let i = 0; i < 5; i++) await call(login, { method: "POST", body: { code: "111111" }, ip: "9.9.9.9" });
 r = await call(login, { method: "POST", body: { code: totpAt(process.env.TOTP_SECRET, Math.floor(Date.now() / 30000) + 1) }, ip: "9.9.9.9" });
 assert(r.status === 429, "locked after 5 wrong codes, even with a valid one");
+r = await call(inbox, { cookie }); assert(r.status === 200 && r.data.inbox.length === 1 && r.data.inbox[0].slug === "kth-largest-integer-in-a-stream", "sync imports the NeetCode submission");
+r = await call(inbox, { cookie, query: { sync: "force" } }); assert(r.data.inbox.length === 1 && githubCalls === 2, "re-sync doesn't duplicate it");
+r = await call(inbox, { cookie }); assert(githubCalls === 2 && r.data.sync.checked === false, "GitHub checked at most every 2 minutes");
+r = await call(inbox, { method: "PUT", body: { slug: "kth-largest-integer-in-a-stream", num: 703 }, cookie }); assert(r.status === 200, "save a NeetCode-to-LeetCode match");
+r = await call(inbox, { method: "POST", body: { nums: [1, 146, 146] }, cookie }); assert(r.data.added === 2, "add past problems by number (deduped)");
+r = await call(inbox, { cookie }); assert(r.data.map["kth-largest-integer-in-a-stream"] === 703 && r.data.inbox.length === 3, "inbox lists all three with the saved match");
+r = await call(inbox, { method: "DELETE", query: { id: "c2" }, cookie }); r = await call(inbox, { cookie }); assert(r.data.inbox.length === 2, "remove a rated entry");
+r = await call(inbox); assert(r.status === 401, "inbox needs sign-in");
 console.log("all API checks passed");

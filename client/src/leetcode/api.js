@@ -22,3 +22,7 @@ export const logout = () => call("/api/logout", { method: "POST" });
 export const getProblems = () => call("/api/problems").then((d) => d.problems || {});
 export const saveRecords = (records) => call("/api/problems", { method: "PUT", body: { records } });
 export const deleteProblem = (num) => call(`/api/problems?num=${num}`, { method: "DELETE" });
+export const getInbox = (force = false) => call(`/api/inbox${force ? "?sync=force" : ""}`);
+export const addPast = (nums) => call("/api/inbox", { method: "POST", body: { nums } });
+export const mapSlug = (slug, num) => call("/api/inbox", { method: "PUT", body: { slug, num } });
+export const dismissInbox = (id) => call(`/api/inbox?id=${encodeURIComponent(id)}`, { method: "DELETE" });
