@@ -1,18 +1,18 @@
 # jesal.zip
 
 Personal site at [jesal.zip](https://jesal.zip), plus a LeetCode review queue at
-[leet.jesal.zip](https://leet.jesal.zip). React + Vite + Tailwind, deployed on Vercel.
+[jesal.zip/leetcode](https://jesal.zip/leetcode). React + Vite + Tailwind, deployed on Vercel.
 
 ## Pages
 
 | URL | Entry | What it is |
 | --- | --- | --- |
 | `jesal.zip` | `client/index.html` → `src/main.jsx` | Click the zip, it "unzips" into draggable windows (README, photo, resume) over a p5 noise background. |
-| `leet.jesal.zip` | `client/leetcode.html` → `src/leetcode/main.jsx` | Spaced-repetition tracker for LeetCode. Data stays in the visitor's browser. |
+| `jesal.zip/leetcode` | `client/leetcode.html` → `src/leetcode/main.jsx` | Spaced-repetition tracker for LeetCode. Data stays in the visitor's browser. |
 
-`client/vercel.json` maps `leet.jesal.zip/` to `leetcode.html` and redirects
-`jesal.zip/leetcode` to the subdomain. The subdomain also has to be added under the Vercel
-project's Domains settings.
+`client/vercel.json` turns on clean URLs, so `/leetcode` serves `leetcode.html`. It also maps
+the root of `leet.jesal.zip` to the same page, which starts working once that subdomain is
+added under the Vercel project's Domains settings and pointed at Vercel in DNS.
 
 ## Develop
 
