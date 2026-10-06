@@ -1,6 +1,4 @@
-import React from "react";
 import Window from "./Window";
-import "../styles.css";
 
 const ProjectsWindow = () => {
   const projects = [

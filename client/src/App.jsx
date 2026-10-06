@@ -1,5 +1,4 @@
-import React, { useState } from "react";
-import "./index.css";
+import { useState } from "react";
 import "./styles.css";
 import BouncingZip from "./components/BouncingZip";
 import UncompressWindow from "./components/UncompressWindow";
