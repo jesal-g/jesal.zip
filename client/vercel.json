@@ -1,0 +1,18 @@
+{
+  "cleanUrls": true,
+  "rewrites": [
+    {
+      "source": "/",
+      "has": [{ "type": "host", "value": "leet.jesal.zip" }],
+      "destination": "/leetcode"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/leetcode",
+      "has": [{ "type": "host", "value": "(www\\.)?jesal\\.zip" }],
+      "destination": "https://leet.jesal.zip/",
+      "permanent": false
+    }
+  ]
+}
