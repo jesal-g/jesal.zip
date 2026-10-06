@@ -1,81 +1,80 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Window from "./Window";
 import Typewriter from "typewriter-effect";
-import "../styles.css";
 import { FaGithub, FaLinkedin, FaYoutube } from "react-icons/fa";
 
+const artists = [
+  "yeat",
+  "carti",
+  "ken carson",
+  "denzel curry",
+  "jid",
+  "travis scott",
+  "bashfortheworld",
+  "soccer mommy",
+  "uzi",
+  "jpegmafia",
+  "weyes blood",
+  "lucki",
+  "yhapojj",
+  "future",
+  "kankan",
+  "weeknd",
+  "paramore",
+  "aphex twin",
+  "charli xcx",
+  "rina sawayama",
+];
+
+const tv_and_movies = [
+  "sopranos",
+  "baby driver",
+  "mr robot",
+  "succession",
+  "freaks and geeks",
+  "slumdog millionare",
+  "superbad",
+  "harold and kumar",
+  "the office",
+  "curb your enthusiasm",
+  "south park",
+  "archer",
+  "silicon valley",
+  "spongebob",
+  "shawshank",
+  "oppenheimer",
+  "inception",
+  "fight club",
+  "toy story 1-3",
+  "american beauty",
+  "good will hunting",
+  "3 idiots",
+  "pk",
+  "wolf of wall st",
+  "fargo",
+  "inside out",
+  "willy wonka",
+  "pulp fiction",
+  "breaking bad",
+  "shameless",
+  "brooklyn 99",
+  "avatar: tla",
+  "atlanta",
+  "master of none",
+  "the good place",
+];
+
+const getRandomElem = (arr) => {
+  return arr[Math.floor(Math.random() * arr.length)];
+};
+
+const getNewLines = () => [
+  `avid ${getRandomElem(artists)} listener`,
+  `avg ${getRandomElem(tv_and_movies)} enjoyer`,
+];
+
 const ReadMeWindow = () => {
-  const artists = [
-    "yeat",
-    "carti",
-    "ken carson",
-    "denzel curry",
-    "jid",
-    "travis scott",
-    "bashfortheworld",
-    "soccer mommy",
-    "uzi",
-    "jpegmafia",
-    "weyes blood",
-    "lucki",
-    "yhapojj",
-    "future",
-    "kankan",
-    "weeknd",
-    "paramore",
-    "aphex twin",
-    "charli xcx",
-    "rina sawayama",
-  ];
-
-  const tv_and_movies = [
-    "sopranos",
-    "baby driver",
-    "mr robot",
-    "succession",
-    "freaks and geeks",
-    "slumdog millionare",
-    "superbad",
-    "harold and kumar",
-    "the office",
-    "curb your enthusiasm",
-    "south park",
-    "archer",
-    "silicon valley",
-    "spongebob",
-    "shawshank",
-    "oppenheimer",
-    "inception",
-    "fight club",
-    "toy story 1-3",
-    "american beauty",
-    "good will hunting",
-    "3 idiots",
-    "pk",
-    "wolf of wall st",
-    "fargo",
-    "inside out",
-    "willy wonka",
-    "pulp fiction",
-    "breaking bad",
-    "shameless",
-    "brooklyn 99",
-    "avatar: tla",
-    "atlanta",
-    "master of none",
-    "the good place",
-  ];
-
-  const getRandomElem = (arr) => {
-    return arr[Math.floor(Math.random() * arr.length)];
-  };
-
-  const getNewLines = () => [
-    `avid ${getRandomElem(artists)} listener`,
-    `avg ${getRandomElem(tv_and_movies)} enjoyer`,
-  ];
-
-  const [lines, setLines] = useState(getNewLines());
+  const [lines, setLines] = useState(getNewLines);
 
   useEffect(() => {
     const intervalId = setInterval(() => {

@@ -1,4 +1,3 @@
-import React from "react";
 import Window from "./Window";
 import headshot from "../assets/headshot.jpg";
 

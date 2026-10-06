@@ -1,4 +1,3 @@
-import React, { useRef } from "react";
 import { motion, useDragControls } from "framer-motion";
 
 const Window = ({ width, height, title, children }) => {

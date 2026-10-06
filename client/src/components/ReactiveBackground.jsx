@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import { useRef } from "react";
 import Sketch from "react-p5";
 
 // const colors = [
@@ -35,7 +35,7 @@ const ReactiveBackground = () => {
   const heightRef = useRef(window.innerHeight);
   const rowsRef = useRef(Math.floor(heightRef.current / scale) + 2);
   const colsRef = useRef(Math.floor(widthRef.current / scale) + 2);
-  let toff = 0;
+  const toffRef = useRef(0); // noise time offset; a ref so re-renders don't reset it
 
   const setScale = () => {
     widthRef.current = window.innerWidth;
@@ -50,11 +50,12 @@ const ReactiveBackground = () => {
       canvasParentRef
     );
     p5.frameRate(18);
+  };
 
-    window.addEventListener("resize", () => {
-      setScale();
-      p5.resizeCanvas(widthRef.current, heightRef.current);
-    });
+  // react-p5 wires this to p5's own resize hook, which is removed with the sketch
+  const windowResized = (p5) => {
+    setScale();
+    p5.resizeCanvas(widthRef.current, heightRef.current);
   };
 
   const draw = (p5) => {
@@ -64,7 +65,7 @@ const ReactiveBackground = () => {
       for (let x = 0; x <= colsRef.current; x++) {
         const xoff = x * step;
         const yoff = y * step;
-        const r = p5.noise(xoff, yoff, toff) * intensity;
+        const r = p5.noise(xoff, yoff, toffRef.current) * intensity;
         const color =
           colors[Math.floor(p5.map(r, 0, intensity, 0, colors.length))];
 
@@ -77,10 +78,10 @@ const ReactiveBackground = () => {
       }
     }
 
-    toff += speed;
+    toffRef.current += speed;
   };
 
-  return <Sketch setup={setup} draw={draw} />;
+  return <Sketch setup={setup} draw={draw} windowResized={windowResized} />;
 };
 
 export default ReactiveBackground;
