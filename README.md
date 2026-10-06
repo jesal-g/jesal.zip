@@ -8,10 +8,10 @@ Personal site at [jesal.zip](https://jesal.zip), plus a LeetCode review queue at
 | URL | Entry | What it is |
 | --- | --- | --- |
 | `jesal.zip` | `client/index.html` → `src/main.jsx` | Click the zip, it "unzips" into draggable windows (README, photo, resume) over a p5 noise background. |
-| `jesal.zip/leetcode` | `client/leetcode.html` → `src/leetcode/main.jsx` | Spaced-repetition tracker for LeetCode. Data stays in the visitor's browser. |
+| `jesal.zip/leetcode` | `client/leetcode/index.html` → `src/leetcode/main.jsx` | Spaced-repetition tracker for LeetCode. Data stays in the visitor's browser. |
 
-`client/vercel.json` turns on clean URLs, so `/leetcode` serves `leetcode.html`. It also maps
-the root of `leet.jesal.zip` to the same page, which starts working once that subdomain is
+The page lives at `leetcode/index.html`, so `/leetcode` works on any static host. `client/vercel.json`
+also maps the root of `leet.jesal.zip` to it, which starts working once that subdomain is
 added under the Vercel project's Domains settings and pointed at Vercel in DNS.
 
 ## Develop
@@ -19,7 +19,7 @@ added under the Vercel project's Domains settings and pointed at Vercel in DNS.
 ```sh
 cd client
 npm install
-npm run dev      # http://localhost:5173 and http://localhost:5173/leetcode.html
+npm run dev      # http://localhost:5173 and http://localhost:5173/leetcode/
 npm run lint
 npm run build    # outputs client/dist
 ```
