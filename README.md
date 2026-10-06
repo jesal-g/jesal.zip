@@ -29,6 +29,12 @@ Setup, once:
    Authenticator.
 3. Redeploy. Sign in at `/leetcode` with a code; the device stays signed in for 60 days.
 
+**NeetCode sync:** NeetCode's GitHub sync commits each solve to the public
+`jesal-g/neetcode-submissions` repo as "Add: <slug> - submission-N". `GET /api/inbox` reads new
+commits (at most every 2 minutes, no token needed) into a "to rate" inbox. NeetCode renames
+many problems, so the first time a slug doesn't match a LeetCode slug the page asks which
+problem it is and remembers the answer (`lc:ncmap`). Past problems can be added by number.
+
 Changing `SESSION_SECRET` signs out every device. Changing `TOTP_SECRET` means re-adding it to
 your authenticator. `npm run test:api` (in `client/`) tests the functions against a fake Redis.
 

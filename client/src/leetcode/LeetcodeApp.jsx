@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Window from "../components/Window";
+import InboxWindow from "./InboxWindow";
 import {
   RESULT_LABEL,
   applyAttempt,
@@ -49,7 +50,20 @@ function useCatalog() {
             paid: !!r[6],
           };
         };
-        setCatalog({ lookup, maxId: c.maxId, count: c.count });
+        const bySlug = new Map(c.rows.map((r) => [r[2], r[0]]));
+        const lookupSlug = (slug) => (bySlug.has(slug) ? lookup(bySlug.get(slug)) : null);
+        // Title or number search for matching renamed NeetCode problems
+        const search = (q) => {
+          const t = q.trim().toLowerCase();
+          if (!t) return [];
+          if (/^\d+$/.test(t)) return [lookup(t)].filter(Boolean);
+          const words = t.split(/\s+/);
+          return c.rows
+            .filter((r) => words.every((w) => r[1].toLowerCase().includes(w)))
+            .slice(0, 6)
+            .map((r) => lookup(r[0]));
+        };
+        setCatalog({ lookup, lookupSlug, search, maxId: c.maxId, count: c.count });
       })
       .catch(() => setFailed(true));
   }, []);
@@ -105,11 +119,28 @@ const LeetcodeApp = () => {
     return () => clearTimeout(id);
   }, [toast]);
 
+  const [inbox, setInbox] = useState([]);
+  const [slugMap, setSlugMap] = useState({});
+  const [syncNote, setSyncNote] = useState("");
+
+  const loadInbox = async (force = false) => {
+    try {
+      const d = await api.getInbox(force);
+      setInbox(d.inbox || []);
+      setSlugMap(d.map || {});
+      setSyncNote(d.sync?.error ? `Couldn't check GitHub just now (${d.sync.error}).` : "");
+      if (force && d.sync?.checked) setToast(d.sync.added ? `Found ${d.sync.added} new submission${d.sync.added > 1 ? "s" : ""}` : "No new NeetCode submissions");
+    } catch (e) {
+      setSyncNote(`Inbox didn't load: ${e.message}`);
+    }
+  };
+
   const loadProblems = async () => {
     try {
       setProblems(await api.getProblems());
       setLoadError("");
       setAuth("in");
+      loadInbox();
     } catch (e) {
       if (e.status === 401) setAuth("out");
       else setLoadError(e.message);
@@ -125,6 +156,8 @@ const LeetcodeApp = () => {
         else setAuth("out");
       })
       .catch(() => setLoadError("Couldn't reach the server. Reload to try again."));
+    // Runs once on page load; loadProblems only reads state setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const submitLogin = async (e) => {
@@ -197,15 +230,44 @@ const LeetcodeApp = () => {
   const newThisWeek = all.filter((p) => (p.attempts || [])[0]?.date >= ws).length;
   const inNextWeek = upcoming.filter((p) => daysBetween(today, p.next) <= 7).length;
 
-  const record = (n, result, noteText = "") => {
+  const record = (n, result, noteText = "", date = today) => {
     const key = String(n);
-    const updated = applyAttempt(problems[key], Number(n), result, noteText.trim(), today);
-    saveAll(
+    const updated = applyAttempt(problems[key], Number(n), result, noteText.trim(), date || today);
+    return saveAll(
       [updated],
       updated.mastered
         ? `#${n} mastered. Out of rotation.`
         : `#${n}: next review ${niceDate(updated.next)} (${relative(updated.next, today)})`
     );
+  };
+
+  const rateInbox = async (entry, n, result, noteText, date) => {
+    if (!(await record(n, result, noteText, date))) return;
+    setInbox((list) => list.filter((e) => e.id !== entry.id));
+    api.dismissInbox(entry.id).catch(() => {});
+  };
+  const dismissEntry = (entry) => {
+    setInbox((list) => list.filter((e) => e.id !== entry.id));
+    api.dismissInbox(entry.id).catch((e) => setToast(`Not removed: ${e.message}`));
+  };
+  const mapEntry = async (slug, n) => {
+    setSlugMap((m) => ({ ...m, [slug]: n }));
+    try {
+      await api.mapSlug(slug, n);
+    } catch (e) {
+      setToast(`Match not saved: ${e.message}`);
+    }
+  };
+  const addPastProblems = async (nums) => {
+    try {
+      const d = await api.addPast(nums);
+      await loadInbox();
+      setToast(`Added ${d.added} to the inbox`);
+      return true;
+    } catch (e) {
+      setToast(`Not added: ${e.message}`);
+      return false;
+    }
   };
 
   const cleanNum = num.trim().replace(/^#/, "");
@@ -381,6 +443,19 @@ const LeetcodeApp = () => {
 
         {auth === "in" && (
         <>
+        <InboxWindow
+          inbox={inbox}
+          map={slugMap}
+          catalog={catalog}
+          problems={problems}
+          onRate={rateInbox}
+          onMap={mapEntry}
+          onDismiss={dismissEntry}
+          onAddPast={addPastProblems}
+          onSync={() => loadInbox(true)}
+          syncNote={syncNote}
+        />
+
         <Window width="w-full" height="h-auto" title={`🔁 due_today.txt (${due.length})`}>
           {due.length === 0 ? (
             <p className="text-gray-500">
