@@ -86,3 +86,25 @@ export function applyAttempt(record, num, result, note, today) {
     mastered: s.mastered,
   };
 }
+
+// Rebuild a record's level and next review from its attempt history (oldest first).
+// Used after editing or deleting attempts so the schedule matches what's left.
+export function replay(record, attempts) {
+  const sorted = [...attempts].sort((a, b) => a.date.localeCompare(b.date));
+  let state = { stage: 0, next: null, mastered: false };
+  for (const a of sorted) {
+    const level = state.mastered ? MAX_LEVEL : state.stage;
+    state = schedule(level, a.result, a.date);
+  }
+  return { ...record, attempts: sorted, ...state, added: sorted[0]?.date || record.added };
+}
+
+// Push every pending review that falls on or after a break's start back by the
+// length of the break, so nothing piles up while you were away.
+export function shiftForBreak(problems, start, today) {
+  const days = daysBetween(start, today);
+  if (days <= 0) return [];
+  return Object.values(problems)
+    .filter((p) => !p.mastered && p.next && p.next >= start)
+    .map((p) => ({ ...p, next: addDays(p.next, days) }));
+}
