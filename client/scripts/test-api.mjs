@@ -34,6 +34,7 @@ const login = (await import(`${API}/login.js`)).default;
 const problems = (await import(`${API}/problems.js`)).default;
 const session = (await import(`${API}/session.js`)).default;
 const inbox = (await import(`${API}/inbox.js`)).default;
+const settings = (await import(`${API}/settings.js`)).default;
 function call(handler, { method = "GET", body, query, cookie, ip = "1.1.1.1" } = {}) {
   return new Promise((resolve) => {
     const res = { headers: {}, statusCode: 200, setHeader(k, v) { this.headers[k] = v; },
@@ -70,4 +71,10 @@ r = await call(inbox, { method: "POST", body: { nums: [1, 146, 146] }, cookie })
 r = await call(inbox, { cookie }); assert(r.data.map["kth-largest-integer-in-a-stream"] === 703 && r.data.inbox.length === 3, "inbox lists all three with the saved match");
 r = await call(inbox, { method: "DELETE", query: { id: "c2" }, cookie }); r = await call(inbox, { cookie }); assert(r.data.inbox.length === 2, "remove a rated entry");
 r = await call(inbox); assert(r.status === 401, "inbox needs sign-in");
+r = await call(settings, { cookie }); assert(r.status === 200 && r.data.break === null, "no break by default");
+r = await call(settings, { method: "PUT", body: { break: { start: "2026-10-15" } }, cookie }); assert(r.data.break?.start === "2026-10-15", "schedule a break");
+r = await call(settings, { cookie }); assert(r.data.break?.start === "2026-10-15", "break is remembered");
+r = await call(settings, { method: "PUT", body: { break: { start: "soon" } }, cookie }); assert(r.status === 400, "bad break date rejected");
+r = await call(settings, { method: "PUT", body: { break: null }, cookie }); assert(r.data.break === null, "end the break");
+r = await call(settings); assert(r.status === 401, "settings need sign-in");
 console.log("all API checks passed");
