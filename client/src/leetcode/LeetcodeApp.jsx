@@ -1,13 +1,16 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Window from "../components/Window";
 import InboxWindow from "./InboxWindow";
+import EditPanel from "./EditPanel";
 import {
   RESULT_LABEL,
+  addDays,
   applyAttempt,
   daysBetween,
   localDate,
   niceDate,
   relative,
+  shiftForBreak,
   weekStart,
 } from "./srs";
 import * as api from "./api";
@@ -119,6 +122,9 @@ const LeetcodeApp = () => {
     return () => clearTimeout(id);
   }, [toast]);
 
+  const [editing, setEditing] = useState(null); // problem number being edited
+  const [brk, setBrk] = useState(null); // { start } when a break is scheduled or active
+  const [breakStart, setBreakStart] = useState("");
   const [inbox, setInbox] = useState([]);
   const [slugMap, setSlugMap] = useState({});
   const [syncNote, setSyncNote] = useState("");
@@ -141,6 +147,7 @@ const LeetcodeApp = () => {
       setLoadError("");
       setAuth("in");
       loadInbox();
+      api.getSettings().then((st) => setBrk(st.break)).catch(() => {});
     } catch (e) {
       if (e.status === 401) setAuth("out");
       else setLoadError(e.message);
@@ -239,6 +246,42 @@ const LeetcodeApp = () => {
         ? `#${n} mastered. Out of rotation.`
         : `#${n}: next review ${niceDate(updated.next)} (${relative(updated.next, today)})`
     );
+  };
+
+  const saveEdit = async (rec) => {
+    if (await saveAll([rec], `#${rec.num} updated`)) setEditing(null);
+  };
+
+  const onBreak = Boolean(brk && brk.start <= today);
+  const scheduleBreak = async () => {
+    const start = breakStart || addDays(today, 2);
+    try {
+      setBrk((await api.setBreak({ start })).break);
+      setToast(start <= today ? "Break started. Reviews are paused." : `Break starts ${niceDate(start)}`);
+    } catch (e) {
+      setToast(`Not saved: ${e.message}`);
+    }
+  };
+  const cancelBreak = async () => {
+    try {
+      await api.setBreak(null);
+      setBrk(null);
+      setToast("Break cancelled");
+    } catch (e) {
+      setToast(`Not saved: ${e.message}`);
+    }
+  };
+  const endBreak = async () => {
+    const shifted = shiftForBreak(problems, brk.start, today);
+    const days = daysBetween(brk.start, today);
+    if (shifted.length && !(await saveAll(shifted))) return;
+    try {
+      await api.setBreak(null);
+      setBrk(null);
+      setToast(`Welcome back. Moved ${shifted.length} review${shifted.length === 1 ? "" : "s"} ${days} day${days === 1 ? "" : "s"} later.`);
+    } catch (e) {
+      setToast(`Dates moved, but the break didn't clear: ${e.message}`);
+    }
   };
 
   const rateInbox = async (entry, n, result, noteText, date) => {
@@ -394,6 +437,49 @@ const LeetcodeApp = () => {
                 </button>
               </div>
             )}
+            {auth === "in" && onBreak && (
+              <div className="rounded-lg bg-blue-50 text-blue-900 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+                <span>
+                  🏝️ On break since {niceDate(brk.start)}. Reviews are paused; when you tap the button, every review
+                  that came due during the break moves later by the number of days you were away.
+                </span>
+                <button onClick={endBreak} className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded">
+                  I&apos;m back
+                </button>
+              </div>
+            )}
+            {auth === "in" && brk && !onBreak && (
+              <div className="rounded-lg bg-gray-100 px-3 py-2 text-sm flex flex-wrap items-center gap-2">
+                <span>Break starts {niceDate(brk.start)} ({relative(brk.start, today)}).</span>
+                <button onClick={cancelBreak} className="text-xs text-gray-500 underline hover:text-gray-800">
+                  Cancel break
+                </button>
+              </div>
+            )}
+            {auth === "in" && !brk && (
+              <details className="text-sm">
+                <summary className="cursor-pointer text-gray-500">Going on a break?</summary>
+                <div className="mt-2 flex flex-wrap items-end gap-2">
+                  <label className="grid gap-1 text-xs text-gray-500">
+                    First day off
+                    <input
+                      type="date"
+                      value={breakStart || addDays(today, 2)}
+                      min={today}
+                      onChange={(e) => setBreakStart(e.target.value)}
+                      className="text-sm text-gray-900 border border-gray-300 rounded px-2 py-1"
+                    />
+                  </label>
+                  <button onClick={scheduleBreak} className="bg-gray-800 hover:bg-gray-700 text-white px-3 py-1 rounded">
+                    Schedule break
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Reviews pause from that day. Tap &quot;I&apos;m back&quot; when you return and due dates move later by the
+                  length of the break.
+                </p>
+              </details>
+            )}
             {auth === "in" && (
               <button onClick={signOut} className="justify-self-start text-xs text-gray-500 underline hover:text-gray-800">
                 Sign out on this device
@@ -457,7 +543,9 @@ const LeetcodeApp = () => {
         />
 
         <Window width="w-full" height="h-auto" title={`🔁 due_today.txt (${due.length})`}>
-          {due.length === 0 ? (
+          {onBreak ? (
+            <p className="text-gray-500">Paused for your break. Tap &quot;I&apos;m back&quot; at the top when you return.</p>
+          ) : due.length === 0 ? (
             <p className="text-gray-500">
               {all.length
                 ? "No reviews due today. Do a new problem and log it below."
@@ -637,7 +725,8 @@ const LeetcodeApp = () => {
                     </tr>
                   )}
                   {tableRows.map((p) => (
-                    <tr key={p.num} className="whitespace-nowrap">
+                    <Fragment key={p.num}>
+                    <tr className="whitespace-nowrap">
                       <td className="py-2 pr-3 tabular-nums">{p.num}</td>
                       <td className="py-2 pr-3">
                         <ProblemLink p={p} /> <span className="text-xs text-gray-500">{p.pattern}</span>
@@ -655,12 +744,26 @@ const LeetcodeApp = () => {
                       </td>
                       <td className="py-2 pr-3 tabular-nums">{p.mastered ? "done" : `${p.stage}/5`}</td>
                       <td className="py-2 pr-3">{p.mastered ? "mastered" : niceDate(p.next)}</td>
-                      <td className="py-2">
+                      <td className="py-2 space-x-3">
+                        <button
+                          onClick={() => setEditing(editing === p.num ? null : p.num)}
+                          className="text-xs text-gray-500 underline hover:text-blue-600"
+                        >
+                          {editing === p.num ? "Close" : "Edit"}
+                        </button>
                         <button onClick={() => remove(String(p.num))} className="text-xs text-gray-500 underline hover:text-red-600">
                           {confirmDelete === String(p.num) ? "Confirm delete" : "Delete"}
                         </button>
                       </td>
                     </tr>
+                    {editing === p.num && (
+                      <tr>
+                        <td colSpan={6} className="pb-3">
+                          <EditPanel record={problems[String(p.num)]} onSave={saveEdit} onCancel={() => setEditing(null)} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

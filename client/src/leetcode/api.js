@@ -26,3 +26,5 @@ export const getInbox = (force = false) => call(`/api/inbox${force ? "?sync=forc
 export const addPast = (nums) => call("/api/inbox", { method: "POST", body: { nums } });
 export const mapSlug = (slug, num) => call("/api/inbox", { method: "PUT", body: { slug, num } });
 export const dismissInbox = (id) => call(`/api/inbox?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+export const getSettings = () => call("/api/settings");
+export const setBreak = (brk) => call("/api/settings", { method: "PUT", body: { break: brk } });
