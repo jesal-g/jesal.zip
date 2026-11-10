@@ -53,20 +53,7 @@ function useCatalog() {
             paid: !!r[6],
           };
         };
-        const bySlug = new Map(c.rows.map((r) => [r[2], r[0]]));
-        const lookupSlug = (slug) => (bySlug.has(slug) ? lookup(bySlug.get(slug)) : null);
-        // Title or number search for matching renamed NeetCode problems
-        const search = (q) => {
-          const t = q.trim().toLowerCase();
-          if (!t) return [];
-          if (/^\d+$/.test(t)) return [lookup(t)].filter(Boolean);
-          const words = t.split(/\s+/);
-          return c.rows
-            .filter((r) => words.every((w) => r[1].toLowerCase().includes(w)))
-            .slice(0, 6)
-            .map((r) => lookup(r[0]));
-        };
-        setCatalog({ lookup, lookupSlug, search, maxId: c.maxId, count: c.count });
+        setCatalog({ lookup, maxId: c.maxId, count: c.count });
       })
       .catch(() => setFailed(true));
   }, []);
@@ -126,18 +113,20 @@ const LeetcodeApp = () => {
   const [brk, setBrk] = useState(null); // { start } when a break is scheduled or active
   const [breakStart, setBreakStart] = useState("");
   const [inbox, setInbox] = useState([]);
-  const [slugMap, setSlugMap] = useState({});
-  const [syncNote, setSyncNote] = useState("");
+  const [inboxNote, setInboxNote] = useState("");
 
-  const loadInbox = async (force = false) => {
+  const loadInbox = async () => {
     try {
-      const d = await api.getInbox(force);
+      const d = await api.getInbox();
       setInbox(d.inbox || []);
-      setSlugMap(d.map || {});
-      setSyncNote(d.sync?.error ? `Couldn't check GitHub just now (${d.sync.error}).` : "");
-      if (force && d.sync?.checked) setToast(d.sync.added ? `Found ${d.sync.added} new submission${d.sync.added > 1 ? "s" : ""}` : "No new NeetCode submissions");
+      const dropped = d.cleanup?.dropped || [];
+      setInboxNote(
+        dropped.length
+          ? `Removed ${dropped.length} old NeetCode entr${dropped.length === 1 ? "y" : "ies"} with no LeetCode number: ${dropped.join(", ")}. Add them by number if you still want to rate them.`
+          : ""
+      );
     } catch (e) {
-      setSyncNote(`Inbox didn't load: ${e.message}`);
+      setInboxNote(`Inbox didn't load: ${e.message}`);
     }
   };
 
@@ -292,14 +281,6 @@ const LeetcodeApp = () => {
   const dismissEntry = (entry) => {
     setInbox((list) => list.filter((e) => e.id !== entry.id));
     api.dismissInbox(entry.id).catch((e) => setToast(`Not removed: ${e.message}`));
-  };
-  const mapEntry = async (slug, n) => {
-    setSlugMap((m) => ({ ...m, [slug]: n }));
-    try {
-      await api.mapSlug(slug, n);
-    } catch (e) {
-      setToast(`Match not saved: ${e.message}`);
-    }
   };
   const addPastProblems = async (nums) => {
     try {
@@ -531,15 +512,12 @@ const LeetcodeApp = () => {
         <>
         <InboxWindow
           inbox={inbox}
-          map={slugMap}
           catalog={catalog}
           problems={problems}
           onRate={rateInbox}
-          onMap={mapEntry}
           onDismiss={dismissEntry}
           onAddPast={addPastProblems}
-          onSync={() => loadInbox(true)}
-          syncNote={syncNote}
+          note={inboxNote}
         />
 
         <Window width="w-full" height="h-auto" title={`🔁 due_today.txt (${due.length})`}>
