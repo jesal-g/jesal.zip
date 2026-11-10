@@ -19,12 +19,11 @@ async function call(path, options = {}) {
 export const getSession = () => call("/api/session");
 export const login = (code) => call("/api/login", { method: "POST", body: { code } });
 export const logout = () => call("/api/logout", { method: "POST" });
-export const getProblems = () => call("/api/problems").then((d) => d.problems || {});
+export const getProblems = () => call("/api/problems"); // {problems, warning?}
 export const saveRecords = (records) => call("/api/problems", { method: "PUT", body: { records } });
-export const deleteProblem = (num) => call(`/api/problems?num=${num}`, { method: "DELETE" });
+export const deleteProblem = (id) => call(`/api/problems?id=${encodeURIComponent(id)}`, { method: "DELETE" });
 export const getInbox = (force = false) => call(`/api/inbox${force ? "?sync=force" : ""}`);
-export const addPast = (nums) => call("/api/inbox", { method: "POST", body: { nums } });
-export const mapSlug = (slug, num) => call("/api/inbox", { method: "PUT", body: { slug, num } });
+export const addPast = (slugs) => call("/api/inbox", { method: "POST", body: { slugs } });
 export const dismissInbox = (id) => call(`/api/inbox?id=${encodeURIComponent(id)}`, { method: "DELETE" });
 export const getSettings = () => call("/api/settings");
 export const setBreak = (brk) => call("/api/settings", { method: "PUT", body: { break: brk } });

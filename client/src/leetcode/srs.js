@@ -1,4 +1,4 @@
-// Spaced-repetition schedule and date helpers for the LeetCode review queue.
+// Spaced-repetition schedule and date helpers for the review queue.
 // Dates are local calendar days as "YYYY-MM-DD" strings, so a review "due today"
 // means today in the visitor's own time zone.
 
@@ -61,12 +61,14 @@ export function relative(iso, today) {
   return `in ${n} days`;
 }
 
-// Apply one attempt to a stored record (or create one) and return the new record.
-export function applyAttempt(record, num, result, note, today) {
+// Apply one attempt to a stored record (or create one for problem {id, site}) and
+// return the new record.
+export function applyAttempt(record, problem, result, note, today) {
   if (!record) {
     const s = schedule(0, result, today);
     return {
-      num,
+      id: problem.id,
+      site: problem.site || "neetcode",
       note: note || "",
       attempts: [{ date: today, result }],
       stage: s.stage,
