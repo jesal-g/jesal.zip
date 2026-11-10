@@ -38,10 +38,12 @@ const lastDate = (p) => (p.attempts || []).at(-1)?.date || "";
 
 // Records from `incoming` that are new or more recent than what `current` has.
 // For a problem in both, the copy attempted more recently wins (ties: more attempts).
+// Old copies keyed by LeetCode number are always sent; the server converts them and
+// merges them into the NeetCode record of the same problem.
 export function newerRecords(current, incoming) {
   const out = [];
   for (const [key, p] of Object.entries(incoming || {})) {
-    if (!p || !Number.isInteger(p.num) || !Array.isArray(p.attempts)) continue;
+    if (!p || !(p.id || Number.isInteger(p.num)) || !Array.isArray(p.attempts)) continue;
     const mine = current[key];
     if (
       !mine ||

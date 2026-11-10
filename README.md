@@ -8,7 +8,7 @@ Personal site at [jesal.zip](https://jesal.zip), plus a LeetCode review queue at
 | URL | Entry | What it is |
 | --- | --- | --- |
 | `jesal.zip` | `client/index.html` → `src/main.jsx` | Click the zip, it "unzips" into draggable windows (README, photo, resume) over a p5 noise background. |
-| `jesal.zip/leetcode` | `client/leetcode/index.html` → `src/leetcode/main.jsx` | Spaced-repetition tracker for LeetCode, saved to a database behind a Google Authenticator login. |
+| `jesal.zip/leetcode` | `client/leetcode/index.html` → `src/leetcode/main.jsx` | Spaced-repetition tracker for NeetCode problems, saved to a database behind a Google Authenticator login. |
 
 The page lives at `leetcode/index.html`, so `/leetcode` works on any static host.
 `leet.jesal.zip` serves the same build: `src/Root.jsx` checks the hostname and renders the
@@ -17,7 +17,7 @@ plus an entry under the Vercel project's Domains settings.
 
 ## LeetCode backend
 
-`client/api/` holds Vercel serverless functions (login, session, problems) backed by Upstash
+`client/api/` holds Vercel serverless functions (login, session, problems, inbox, settings) backed by Upstash
 Redis. Only one person can sign in: whoever has the authenticator secret.
 
 Setup, once:
@@ -29,11 +29,16 @@ Setup, once:
    Authenticator.
 3. Redeploy. Sign in at `/leetcode` with a code; the device stays signed in for 60 days.
 
-**NeetCode sync:** NeetCode's GitHub sync commits each solve to the public
+**NeetCode only:** problems are tracked by their neetcode.io slug (e.g. `duplicate-integer`),
+never by LeetCode number. NeetCode's GitHub sync commits each solve to the public
 `jesal-g/neetcode-submissions` repo as "Add: <slug> - submission-N". `GET /api/inbox` reads new
-commits (at most every 2 minutes, no token needed) into a "to rate" inbox. NeetCode renames
-many problems, so the first time a slug doesn't match a LeetCode slug the page asks which
-problem it is and remembers the answer (`lc:ncmap`). Past problems can be added by number.
+commits (at most every 2 minutes, no token needed) into a "to rate" inbox, one entry per
+problem. Past problems can be added by name.
+
+Data saved before this used LeetCode numbers. The first load after the switch converts it once
+(`api/_lib/legacy.js`): each number becomes a NeetCode slug, from the old matches in `lc:ncmap`
+(kept, read-only) or the NeetCode catalog. Problems NeetCode doesn't have keep their LeetCode slug
+and show as "LeetCode only". Old backups with LeetCode numbers are converted the same way.
 
 Changing `SESSION_SECRET` signs out every device. Changing `TOTP_SECRET` means re-adding it to
 your authenticator. `npm run test:api` (in `client/`) tests the functions against a fake Redis.
@@ -49,13 +54,15 @@ npm run lint
 npm run build    # outputs client/dist
 ```
 
-## LeetCode catalog
+## NeetCode catalog
 
-`client/public/leetcode-catalog.json` holds problem number, title, slug, difficulty, topic
-tags and a pattern name for each problem (no problem statements). To refresh it with newer
-problems, download the two source files listed at the top of
-`client/scripts/build_leetcode_catalog.py` and run:
+`client/public/neetcode-catalog.json` holds each NeetCode problem's slug, title, difficulty and
+pattern (no problem statements). To refresh it:
 
 ```sh
-python3 client/scripts/build_leetcode_catalog.py leetcode_questions.json problemSiteData.json client/public/leetcode-catalog.json
+git clone --depth 1 https://github.com/neetcode-gh/leetcode.git neetcode-gh
+python3 client/scripts/build_neetcode_catalog.py neetcode-gh client/public/leetcode-catalog.json client/public/neetcode-catalog.json
 ```
+
+`client/public/leetcode-catalog.json` (LeetCode problem metadata) is only read by the server, to
+convert old LeetCode-numbered data. `client/scripts/build_leetcode_catalog.py` rebuilds it.

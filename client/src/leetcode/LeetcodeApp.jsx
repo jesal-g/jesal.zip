@@ -15,6 +15,8 @@ import {
 } from "./srs";
 import * as api from "./api";
 import { clearLegacy, loadLegacy, newerRecords, parseBackup, toBackup } from "./storage";
+import { describe, useCatalog } from "./catalog";
+import ProblemSearch from "./ProblemSearch";
 
 const ReactiveBackground = lazy(() => import("../components/ReactiveBackground"));
 
@@ -31,48 +33,6 @@ const RESULT_BUTTONS = [
 ];
 const DOT = { fail: "bg-red-500", hint: "bg-yellow-500", ok: "bg-green-500" };
 
-// Problem titles, difficulty and tags, loaded once from /public.
-function useCatalog() {
-  const [catalog, setCatalog] = useState(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    fetch("/leetcode-catalog.json")
-      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-      .then((c) => {
-        const byId = new Map(c.rows.map((r) => [r[0], r]));
-        const lookup = (num) => {
-          const r = byId.get(Number(num));
-          if (!r) return null;
-          return {
-            num: r[0],
-            title: r[1],
-            slug: r[2],
-            diff: r[3],
-            tags: r[4].map((i) => c.tags[i]),
-            pattern: c.patterns[r[5]],
-            paid: !!r[6],
-          };
-        };
-        const bySlug = new Map(c.rows.map((r) => [r[2], r[0]]));
-        const lookupSlug = (slug) => (bySlug.has(slug) ? lookup(bySlug.get(slug)) : null);
-        // Title or number search for matching renamed NeetCode problems
-        const search = (q) => {
-          const t = q.trim().toLowerCase();
-          if (!t) return [];
-          if (/^\d+$/.test(t)) return [lookup(t)].filter(Boolean);
-          const words = t.split(/\s+/);
-          return c.rows
-            .filter((r) => words.every((w) => r[1].toLowerCase().includes(w)))
-            .slice(0, 6)
-            .map((r) => lookup(r[0]));
-        };
-        setCatalog({ lookup, lookupSlug, search, maxId: c.maxId, count: c.count });
-      })
-      .catch(() => setFailed(true));
-  }, []);
-  return { catalog, failed };
-}
-
 function useToday() {
   const [today, setToday] = useState(localDate);
   useEffect(() => {
@@ -84,7 +44,7 @@ function useToday() {
 
 const ProblemLink = ({ p }) => (
   <a
-    href={`https://leetcode.com/problems/${p.slug}/`}
+    href={p.url}
     target="_blank"
     rel="noopener noreferrer"
     className="font-bold text-blue-500 hover:underline break-words"
@@ -108,13 +68,13 @@ const LeetcodeApp = () => {
   const [code, setCode] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
-  const [num, setNum] = useState("");
+  const [picked, setPicked] = useState(null); // problem chosen in the log form
   const [note, setNote] = useState("");
   const [toast, setToast] = useState("");
   const [query, setQuery] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const fileRef = useRef(null);
-  const numRef = useRef(null);
+  const searchRef = useRef(null);
 
   useEffect(() => {
     if (!toast) return;
@@ -122,18 +82,16 @@ const LeetcodeApp = () => {
     return () => clearTimeout(id);
   }, [toast]);
 
-  const [editing, setEditing] = useState(null); // problem number being edited
+  const [editing, setEditing] = useState(null); // id of the problem being edited
   const [brk, setBrk] = useState(null); // { start } when a break is scheduled or active
   const [breakStart, setBreakStart] = useState("");
   const [inbox, setInbox] = useState([]);
-  const [slugMap, setSlugMap] = useState({});
   const [syncNote, setSyncNote] = useState("");
 
   const loadInbox = async (force = false) => {
     try {
       const d = await api.getInbox(force);
       setInbox(d.inbox || []);
-      setSlugMap(d.map || {});
       setSyncNote(d.sync?.error ? `Couldn't check GitHub just now (${d.sync.error}).` : "");
       if (force && d.sync?.checked) setToast(d.sync.added ? `Found ${d.sync.added} new submission${d.sync.added > 1 ? "s" : ""}` : "No new NeetCode submissions");
     } catch (e) {
@@ -143,8 +101,9 @@ const LeetcodeApp = () => {
 
   const loadProblems = async () => {
     try {
-      setProblems(await api.getProblems());
-      setLoadError("");
+      const d = await api.getProblems();
+      setProblems(d.problems || {});
+      setLoadError(d.warning || "");
       setAuth("in");
       loadInbox();
       api.getSettings().then((st) => setBrk(st.break)).catch(() => {});
@@ -192,7 +151,7 @@ const LeetcodeApp = () => {
   const saveAll = async (records, successMsg) => {
     const before = problems;
     const next = { ...problems };
-    for (const r of records) next[String(r.num)] = r;
+    for (const r of records) next[r.id] = r;
     setProblems(next);
     try {
       await api.saveRecords(records);
@@ -208,22 +167,11 @@ const LeetcodeApp = () => {
 
   // Stored records joined with catalog details
   const all = useMemo(() => {
-    const fill = (p) => {
-      const m = catalog?.lookup(p.num);
-      return {
-        ...p,
-        title: m?.title || `Problem ${p.num}`,
-        slug: m?.slug || "",
-        diff: m?.diff,
-        pattern: m?.pattern || "Other",
-        tags: m?.tags || [],
-      };
-    };
-    return Object.values(problems).map(fill);
+    return Object.values(problems).map((p) => ({ ...p, ...describe(catalog, p) }));
   }, [problems, catalog]);
 
   const active = all.filter((p) => !p.mastered && p.next);
-  const byNext = (a, b) => a.next.localeCompare(b.next) || a.num - b.num;
+  const byNext = (a, b) => a.next.localeCompare(b.next) || a.title.localeCompare(b.title);
   const due = active.filter((p) => p.next <= today).sort(byNext);
   const upcoming = active.filter((p) => p.next > today).sort(byNext);
   const next30 = upcoming.filter((p) => daysBetween(today, p.next) <= 30);
@@ -237,19 +185,21 @@ const LeetcodeApp = () => {
   const newThisWeek = all.filter((p) => (p.attempts || [])[0]?.date >= ws).length;
   const inNextWeek = upcoming.filter((p) => daysBetween(today, p.next) <= 7).length;
 
-  const record = (n, result, noteText = "", date = today) => {
-    const key = String(n);
-    const updated = applyAttempt(problems[key], Number(n), result, noteText.trim(), date || today);
+  const titleOf = (p) => describe(catalog, p).title;
+  // problem: {id, site}
+  const record = (problem, result, noteText = "", date = today) => {
+    const updated = applyAttempt(problems[problem.id], problem, result, noteText.trim(), date || today);
+    const name = titleOf(updated);
     return saveAll(
       [updated],
       updated.mastered
-        ? `#${n} mastered. Out of rotation.`
-        : `#${n}: next review ${niceDate(updated.next)} (${relative(updated.next, today)})`
+        ? `${name} mastered. Out of rotation.`
+        : `${name}: next review ${niceDate(updated.next)} (${relative(updated.next, today)})`
     );
   };
 
   const saveEdit = async (rec) => {
-    if (await saveAll([rec], `#${rec.num} updated`)) setEditing(null);
+    if (await saveAll([rec], `${titleOf(rec)} updated`)) setEditing(null);
   };
 
   const onBreak = Boolean(brk && brk.start <= today);
@@ -284,8 +234,8 @@ const LeetcodeApp = () => {
     }
   };
 
-  const rateInbox = async (entry, n, result, noteText, date) => {
-    if (!(await record(n, result, noteText, date))) return;
+  const rateInbox = async (entry, problem, result, noteText, date) => {
+    if (!(await record(problem, result, noteText, date))) return;
     setInbox((list) => list.filter((e) => e.id !== entry.id));
     api.dismissInbox(entry.id).catch(() => {});
   };
@@ -293,19 +243,11 @@ const LeetcodeApp = () => {
     setInbox((list) => list.filter((e) => e.id !== entry.id));
     api.dismissInbox(entry.id).catch((e) => setToast(`Not removed: ${e.message}`));
   };
-  const mapEntry = async (slug, n) => {
-    setSlugMap((m) => ({ ...m, [slug]: n }));
+  const addPastProblems = async (slugs) => {
     try {
-      await api.mapSlug(slug, n);
-    } catch (e) {
-      setToast(`Match not saved: ${e.message}`);
-    }
-  };
-  const addPastProblems = async (nums) => {
-    try {
-      const d = await api.addPast(nums);
+      const d = await api.addPast(slugs);
       await loadInbox();
-      setToast(`Added ${d.added} to the inbox`);
+      setToast(d.added === 1 ? `Added ${titleOf({ id: slugs[0] })} to the inbox` : `Added ${d.added} to the inbox`);
       return true;
     } catch (e) {
       setToast(`Not added: ${e.message}`);
@@ -313,16 +255,15 @@ const LeetcodeApp = () => {
     }
   };
 
-  const cleanNum = num.trim().replace(/^#/, "");
-  const found = /^\d{1,5}$/.test(cleanNum) ? catalog?.lookup(cleanNum) : null;
-  const tracked = found ? problems[String(found.num)] : null;
+  const found = picked ? { ...picked, ...describe(catalog, picked) } : null;
+  const tracked = found ? problems[found.id] : null;
 
   const logNew = (result) => {
     if (!found) return;
-    record(found.num, result, note);
-    setNum("");
+    record({ id: found.id, site: found.site }, result, note);
+    setPicked(null);
     setNote("");
-    numRef.current?.focus();
+    searchRef.current?.focus();
   };
 
   const remove = (key) => {
@@ -338,7 +279,7 @@ const LeetcodeApp = () => {
     setConfirmDelete(null);
     api
       .deleteProblem(key)
-      .then(() => setToast(`Deleted #${key}`))
+      .then(() => setToast(`Deleted ${titleOf(before[key])}`))
       .catch((e) => {
         setProblems(before);
         setToast(`Not deleted: ${e.message}`);
@@ -350,7 +291,7 @@ const LeetcodeApp = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `leetcode-backup-${today}.json`;
+    a.download = `neetcode-backup-${today}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -382,7 +323,7 @@ const LeetcodeApp = () => {
 
   const q = query.trim().toLowerCase();
   const tableRows = all
-    .filter((p) => !q || String(p.num).includes(q) || p.title.toLowerCase().includes(q) || p.pattern.toLowerCase().includes(q))
+    .filter((p) => !q || p.id.includes(q) || p.title.toLowerCase().includes(q) || p.pattern.toLowerCase().includes(q))
     .sort((a, b) => a.mastered - b.mastered || String(a.next || "9").localeCompare(String(b.next || "9")));
 
   return (
@@ -398,10 +339,10 @@ const LeetcodeApp = () => {
           <div className="grid gap-3">
             <a href="https://jesal.zip" className="text-sm text-blue-500 hover:underline">← jesal.zip</a>
             <h1 className="font-title text-3xl sm:text-4xl leading-tight bg-gradient-to-r from-teal-500 via-green-500 to-teal-500 bg-clip-text text-transparent">
-              LEETCODE REVIEW QUEUE
+              NEETCODE REVIEW QUEUE
             </h1>
             <p className="text-gray-700">
-              Log a problem number and how it went. Anything you fail comes back tomorrow, then at
+              Log a NeetCode problem and how it went. Anything you fail comes back tomorrow, then at
               3, 7, 14, 30 and 60 days as you solve it cleanly. Five clean solves in a row and it&apos;s mastered.
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -531,11 +472,9 @@ const LeetcodeApp = () => {
         <>
         <InboxWindow
           inbox={inbox}
-          map={slugMap}
           catalog={catalog}
           problems={problems}
           onRate={rateInbox}
-          onMap={mapEntry}
           onDismiss={dismissEntry}
           onAddPast={addPastProblems}
           onSync={() => loadInbox(true)}
@@ -558,11 +497,10 @@ const LeetcodeApp = () => {
                 const last = (p.attempts || []).at(-1);
                 return (
                   <li
-                    key={p.num}
+                    key={p.id}
                     className={`rounded-lg border p-3 grid gap-2 ${late ? "border-red-300 border-l-4 border-l-red-500" : "border-gray-200"}`}
                   >
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="tabular-nums text-gray-500">{p.num}</span>
                       <ProblemLink p={p} />
                       {p.diff && <Pill className={DIFF_CLASS[p.diff]}>{DIFF[p.diff]}</Pill>}
                       <Pill>{p.pattern}</Pill>
@@ -580,7 +518,7 @@ const LeetcodeApp = () => {
                       {RESULT_BUTTONS.map((b) => (
                         <button
                           key={b.result}
-                          onClick={() => record(p.num, b.result)}
+                          onClick={() => record(p, b.result)}
                           className={`${b.cls} text-white text-sm px-3 py-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
                         >
                           {b.label}
@@ -596,35 +534,18 @@ const LeetcodeApp = () => {
 
         <Window width="w-full" height="h-auto" title="➕ log_attempt.sh">
           <div className="grid gap-3">
-            <div className="grid sm:grid-cols-[9rem_1fr] gap-3 items-start">
-              <label className="grid gap-1 text-sm text-gray-500 min-w-0">
-                Problem number
-                <input
-                  ref={numRef}
-                  value={num}
-                  onChange={(e) => setNum(e.target.value)}
-                  inputMode="numeric"
-                  autoComplete="off"
-                  placeholder="146"
-                  className="w-full min-w-0 text-lg text-gray-900 border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </label>
+            <div className="grid sm:grid-cols-2 gap-3 items-start">
+              <ProblemSearch catalog={catalog} onPick={setPicked} label="NeetCode problem" inputRef={searchRef} />
               <div className={`min-h-[4rem] rounded border px-3 py-2 grid gap-1 content-center ${found ? "border-gray-300" : "border-dashed border-gray-300"}`}>
-                {!cleanNum ? (
-                  <span className="text-sm text-gray-500">Type a number to look up the problem.</span>
-                ) : !catalog ? (
-                  <span className="text-sm text-gray-500">Loading problem list…</span>
-                ) : !found ? (
-                  <span className="text-sm text-red-600">No problem #{cleanNum} in the list (covers #1 to #{catalog.maxId}).</span>
+                {!found ? (
+                  <span className="text-sm text-gray-500">Search by name and pick the problem.</span>
                 ) : (
                   <>
                     <div className="flex flex-wrap items-center gap-2">
                       <ProblemLink p={found} />
-                      <Pill className={DIFF_CLASS[found.diff]}>{DIFF[found.diff]}</Pill>
+                      {found.diff && <Pill className={DIFF_CLASS[found.diff]}>{DIFF[found.diff]}</Pill>}
                       <Pill>{found.pattern}</Pill>
-                      {found.paid && <Pill>Premium</Pill>}
                     </div>
-                    <span className="text-xs text-gray-500">{found.tags.join(" · ")}</span>
                     {tracked && (
                       <span className="text-xs text-gray-500">
                         Already tracked{tracked.mastered ? " (mastered)" : `, next review ${niceDate(tracked.next)}`}. Logging now counts as a review.
@@ -678,8 +599,7 @@ const LeetcodeApp = () => {
                   </div>
                   <ul className="grid gap-1 min-w-0">
                     {d.items.map((p) => (
-                      <li key={p.num} className="flex flex-wrap items-baseline gap-2 text-sm">
-                        <span className="tabular-nums text-gray-500">{p.num}</span>
+                      <li key={p.id} className="flex flex-wrap items-baseline gap-2 text-sm">
                         <ProblemLink p={p} />
                         {p.diff && <Pill className={DIFF_CLASS[p.diff]}>{DIFF[p.diff]}</Pill>}
                         <span className="text-xs text-gray-500">level {p.stage}/5</span>
@@ -700,7 +620,7 @@ const LeetcodeApp = () => {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search number, title or pattern"
+              placeholder="Search title or pattern"
               aria-label="Search problems"
               className="text-sm border border-gray-300 rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -708,7 +628,6 @@ const LeetcodeApp = () => {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
-                    <th className="py-2 pr-3">#</th>
                     <th className="py-2 pr-3">Title</th>
                     <th className="py-2 pr-3">History</th>
                     <th className="py-2 pr-3">Level</th>
@@ -719,15 +638,14 @@ const LeetcodeApp = () => {
                 <tbody className="divide-y divide-gray-200">
                   {tableRows.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-3 text-gray-500">
+                      <td colSpan={5} className="py-3 text-gray-500">
                         {all.length ? "No problems match." : "Logged problems show up here."}
                       </td>
                     </tr>
                   )}
                   {tableRows.map((p) => (
-                    <Fragment key={p.num}>
+                    <Fragment key={p.id}>
                     <tr className="whitespace-nowrap">
-                      <td className="py-2 pr-3 tabular-nums">{p.num}</td>
                       <td className="py-2 pr-3">
                         <ProblemLink p={p} /> <span className="text-xs text-gray-500">{p.pattern}</span>
                       </td>
@@ -746,20 +664,20 @@ const LeetcodeApp = () => {
                       <td className="py-2 pr-3">{p.mastered ? "mastered" : niceDate(p.next)}</td>
                       <td className="py-2 space-x-3">
                         <button
-                          onClick={() => setEditing(editing === p.num ? null : p.num)}
+                          onClick={() => setEditing(editing === p.id ? null : p.id)}
                           className="text-xs text-gray-500 underline hover:text-blue-600"
                         >
-                          {editing === p.num ? "Close" : "Edit"}
+                          {editing === p.id ? "Close" : "Edit"}
                         </button>
-                        <button onClick={() => remove(String(p.num))} className="text-xs text-gray-500 underline hover:text-red-600">
-                          {confirmDelete === String(p.num) ? "Confirm delete" : "Delete"}
+                        <button onClick={() => remove(p.id)} className="text-xs text-gray-500 underline hover:text-red-600">
+                          {confirmDelete === p.id ? "Confirm delete" : "Delete"}
                         </button>
                       </td>
                     </tr>
-                    {editing === p.num && (
+                    {editing === p.id && (
                       <tr>
-                        <td colSpan={6} className="pb-3">
-                          <EditPanel record={problems[String(p.num)]} onSave={saveEdit} onCancel={() => setEditing(null)} />
+                        <td colSpan={5} className="pb-3">
+                          <EditPanel record={problems[p.id]} onSave={saveEdit} onCancel={() => setEditing(null)} />
                         </td>
                       </tr>
                     )}
@@ -788,7 +706,7 @@ const LeetcodeApp = () => {
             </div>
             {catalog && (
               <p className="text-xs text-gray-500">
-                Problem details cover LeetCode #1 to #{catalog.maxId} ({catalog.count.toLocaleString()} problems).
+                Problem list covers {catalog.count.toLocaleString()} NeetCode problems. For a newer one, paste its neetcode.io link.
               </p>
             )}
           </div>
