@@ -4,27 +4,30 @@ const API = new URL("../api", import.meta.url).href;
 process.env.KV_REST_API_URL = "https://fake-redis"; process.env.KV_REST_API_TOKEN = "t";
 process.env.SESSION_SECRET = "test-session-secret"; process.env.TOTP_SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
 const store = new Map(), hashes = new Map();
-const githubCommits = [
-  { sha: "c2", commit: { message: "Add: kth-largest-integer-in-a-stream - submission-0", author: { date: "2026-06-21T19:25:59Z" } } },
-  { sha: "c1", commit: { message: "Initialize NeetCode solutions repository", author: { date: "2026-06-21T19:11:32Z" } } },
-];
-let githubCalls = 0;
+// Inbox left by the old NeetCode sync, to check the one-time cleanup.
+const nc = (slug, at) => JSON.stringify({ id: "x", slug, num: null, at, source: "neetcode" });
+hashes.set("lc:inbox", new Map([
+  ["c2", nc("kth-largest-integer-in-a-stream", "2026-06-21T19:25:59Z")], // matched before (lc:ncmap)
+  ["c3", nc("two-sum", "2026-06-22T10:00:00Z")], // same slug as LeetCode
+  ["c4", nc("two-sum", "2026-06-23T10:00:00Z")], // second submission of it
+  ["c5", nc("some-renamed-problem", "2026-06-24T10:00:00Z")], // never matched
+  ["manual-20", JSON.stringify({ id: "manual-20", slug: null, num: 20, at: "2026-06-25T10:00:00Z", source: "manual" })],
+]));
+hashes.set("lc:ncmap", new Map([["kth-largest-integer-in-a-stream", "703"]]));
+store.set("lc:sync:since", "2026-06-24T10:00:00Z"); store.set("lc:sync:at", "1");
+let outsideCalls = 0;
 globalThis.fetch = async (url, opts) => {
-  if (String(url).startsWith("https://api.github.com/")) {
-    githubCalls++;
-    const since = new URL(url).searchParams.get("since");
-    return { ok: true, json: async () => githubCommits.filter((c) => !since || c.commit.author.date >= since) };
-  }
+  if (url !== "https://fake-redis") { outsideCalls++; throw new Error("unexpected fetch " + url); }
   const [cmd, ...a] = JSON.parse(opts.body); let result = null;
   switch (cmd) {
     case "GET": result = store.get(a[0]) ?? null; break;
     case "SET": store.set(a[0], a[1]); result = "OK"; break;
-    case "DEL": store.delete(a[0]); result = 1; break;
+    case "DEL": a.forEach((k) => { store.delete(k); hashes.delete(k); }); result = 1; break;
     case "INCR": store.set(a[0], String(Number(store.get(a[0]) || 0) + 1)); result = Number(store.get(a[0])); break;
     case "EXPIRE": result = 1; break;
     case "HSET": { const h = hashes.get(a[0]) || new Map(); for (let i = 1; i < a.length; i += 2) h.set(a[i], a[i+1]); hashes.set(a[0], h); result = 1; break; }
     case "HGETALL": result = [...(hashes.get(a[0]) || new Map())].flat(); break;
-    case "HDEL": hashes.get(a[0])?.delete(a[1]); result = 1; break;
+    case "HDEL": a.slice(1).forEach((f) => hashes.get(a[0])?.delete(f)); result = 1; break;
     default: throw new Error("unhandled " + cmd);
   }
   return { ok: true, json: async () => ({ result }) };
@@ -63,13 +66,21 @@ assert(!r.data.problems["146"], "delete works");
 for (let i = 0; i < 5; i++) await call(login, { method: "POST", body: { code: "111111" }, ip: "9.9.9.9" });
 r = await call(login, { method: "POST", body: { code: totpAt(process.env.TOTP_SECRET, Math.floor(Date.now() / 30000) + 1) }, ip: "9.9.9.9" });
 assert(r.status === 429, "locked after 5 wrong codes, even with a valid one");
-r = await call(inbox, { cookie }); assert(r.status === 200 && r.data.inbox.length === 1 && r.data.inbox[0].slug === "kth-largest-integer-in-a-stream", "sync imports the NeetCode submission");
-r = await call(inbox, { cookie, query: { sync: "force" } }); assert(r.data.inbox.length === 1 && githubCalls === 2, "re-sync doesn't duplicate it");
-r = await call(inbox, { cookie }); assert(githubCalls === 2 && r.data.sync.checked === false, "GitHub checked at most every 2 minutes");
-r = await call(inbox, { method: "PUT", body: { slug: "kth-largest-integer-in-a-stream", num: 703 }, cookie }); assert(r.status === 200, "save a NeetCode-to-LeetCode match");
-r = await call(inbox, { method: "POST", body: { nums: [1, 146, 146] }, cookie }); assert(r.data.added === 2, "add past problems by number (deduped)");
-r = await call(inbox, { cookie }); assert(r.data.map["kth-largest-integer-in-a-stream"] === 703 && r.data.inbox.length === 3, "inbox lists all three with the saved match");
-r = await call(inbox, { method: "DELETE", query: { id: "c2" }, cookie }); r = await call(inbox, { cookie }); assert(r.data.inbox.length === 2, "remove a rated entry");
+await call(problems, { method: "PUT", body: { records: [{ ...rec, num: 703 }] }, cookie });
+r = await call(inbox, { cookie });
+const byNum = Object.fromEntries(r.data.inbox.map((e) => [e.num, e]));
+assert(r.status === 200 && r.data.inbox.length === 3 && byNum[703] && byNum[1] && byNum[20], "cleanup turns NeetCode entries into LeetCode numbers");
+assert(byNum[703].at === "2026-06-21T19:25:59Z" && byNum[703].source === "solved" && !("slug" in byNum[703]), "converted entry keeps its solve date, no slug");
+assert(byNum[1].at === "2026-06-23T10:00:00Z", "two submissions of one problem become one entry (newest)");
+assert(JSON.stringify(r.data.cleanup) === JSON.stringify({ converted: 2, dropped: ["some-renamed-problem"] }), "cleanup reports what it dropped");
+assert(!hashes.has("lc:ncmap") && !store.has("lc:sync:since") && !store.has("lc:sync:at"), "old NeetCode keys removed");
+r = await call(problems, { cookie }); assert(r.data.problems["703"]?.note === "hash map + list", "rated problems untouched by cleanup");
+r = await call(inbox, { cookie }); assert(r.data.inbox.length === 3 && !r.data.cleanup, "cleanup runs once");
+assert(outsideCalls === 0, "no calls outside the database");
+r = await call(inbox, { method: "PUT", body: { slug: "two-sum", num: 1 }, cookie }); assert(r.status === 405, "slug matching is gone");
+r = await call(inbox, { method: "POST", body: { nums: [1, 146, 146] }, cookie }); assert(r.data.added === 2, "add problems by number (deduped)");
+r = await call(inbox, { cookie }); assert(r.data.inbox.length === 5 && r.data.inbox.every((e) => Number.isInteger(e.num)), "inbox lists them by number");
+r = await call(inbox, { method: "DELETE", query: { id: "solved-703" }, cookie }); r = await call(inbox, { cookie }); assert(r.data.inbox.length === 4, "remove a rated entry");
 r = await call(inbox); assert(r.status === 401, "inbox needs sign-in");
 r = await call(settings, { cookie }); assert(r.status === 200 && r.data.break === null, "no break by default");
 r = await call(settings, { method: "PUT", body: { break: { start: "2026-10-15" } }, cookie }); assert(r.data.break?.start === "2026-10-15", "schedule a break");
