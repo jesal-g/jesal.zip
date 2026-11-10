@@ -88,6 +88,8 @@ r = await call(problems, { cookie }); assert(r.data.problems["lru-cache"]?.note 
 const { id: _id, site: _site, ...oldShape } = rec;
 r = await call(problems, { method: "PUT", body: { records: [{ ...oldShape, num: 1 }] }, cookie });
 r = await call(problems, { cookie }); assert(r.data.problems["two-integer-sum"], "an old backup record (LeetCode number) is converted on save");
+r = await call(problems, { method: "PUT", body: { records: [JSON.parse(old(217, [day("2026-09-01", "fail")]))] }, cookie });
+r = await call(problems, { cookie }); assert(r.data.problems["duplicate-integer"].attempts.length === 3 && r.data.problems["duplicate-integer"].next === "2026-10-12", "restoring an old backup merges into the NeetCode record instead of replacing it");
 r = await call(problems, { method: "DELETE", query: { id: "lru-cache" }, cookie }); r = await call(problems, { cookie });
 assert(!r.data.problems["lru-cache"], "delete works");
 for (let i = 0; i < 5; i++) await call(login, { method: "POST", body: { code: "111111" }, ip: "9.9.9.9" });

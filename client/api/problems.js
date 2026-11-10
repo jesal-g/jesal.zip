@@ -1,7 +1,7 @@
 import { isAuthed } from "./_lib/auth.js";
 import { redis } from "./_lib/redis.js";
-import { cleanRecord, validId } from "./_lib/records.js";
-import { PROBLEMS as KEY, makeConverter, migrate } from "./_lib/legacy.js";
+import { cleanRecord, mergeRecords, validId } from "./_lib/records.js";
+import { PROBLEMS as KEY, makeConverter, migrate, readHash } from "./_lib/legacy.js";
 
 // Redis hash lc:problems: NeetCode slug -> JSON record (see _lib/records.js)
 // GET    /api/problems                  -> { problems: { "duplicate-integer": {...}, ... } }
@@ -37,9 +37,22 @@ export default async function handler(req, res) {
       if (!Array.isArray(input) || input.length === 0 || input.length > 500) {
         return res.status(400).json({ error: "Send 1 to 500 records." });
       }
-      const convert = input.some((r) => r && r.id === undefined) ? await makeConverter() : null;
-      const records = input.map((r) => cleanRecord(r, convert));
+      const isOld = (r) => r && r.id === undefined;
+      const convert = input.some(isOld) ? await makeConverter() : null;
+      let records = input.map((r) => cleanRecord(r, convert));
       if (records.some((r) => !r)) return res.status(400).json({ error: "A record is malformed." });
+      if (convert) {
+        // An old record (from a backup) may be a problem already saved under its NeetCode slug
+        const stored = await readHash(KEY);
+        records = records.map((r, i) => {
+          if (!isOld(input[i]) || !stored[r.id]) return r;
+          try {
+            return mergeRecords(JSON.parse(stored[r.id]), r);
+          } catch {
+            return r;
+          }
+        });
+      }
       await redis("HSET", KEY, ...records.flatMap((r) => [r.id, JSON.stringify(r)]));
       return res.status(200).json({ saved: records.length });
     }
