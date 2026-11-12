@@ -25,5 +25,8 @@ export const deleteProblem = (id) => call(`/api/problems?id=${encodeURIComponent
 export const getInbox = (force = false) => call(`/api/inbox${force ? "?sync=force" : ""}`);
 export const addPast = (slugs) => call("/api/inbox", { method: "POST", body: { slugs } });
 export const dismissInbox = (id) => call(`/api/inbox?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+export const getPatterns = () => call("/api/patterns").then((d) => d.custom || {});
+export const setPattern = (id, site, pattern) => call("/api/patterns", { method: "PUT", body: { id, site, pattern } });
+export const resetPattern = (id) => call(`/api/patterns?id=${encodeURIComponent(id)}`, { method: "DELETE" });
 export const getSettings = () => call("/api/settings");
 export const setBreak = (brk) => call("/api/settings", { method: "PUT", body: { break: brk } });

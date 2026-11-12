@@ -17,7 +17,7 @@ plus an entry under the Vercel project's Domains settings.
 
 ## LeetCode backend
 
-`client/api/` holds Vercel serverless functions (login, session, problems, inbox, settings) backed by Upstash
+`client/api/` holds Vercel serverless functions (login, session, problems, inbox, settings, patterns) backed by Upstash
 Redis. Only one person can sign in: whoever has the authenticator secret.
 
 Setup, once:
@@ -34,6 +34,11 @@ never by LeetCode number. NeetCode's GitHub sync commits each solve to the publi
 `jesal-g/neetcode-submissions` repo as "Add: <slug> - submission-N". `GET /api/inbox` reads new
 commits (at most every 2 minutes, no token needed) into a "to rate" inbox, one entry per
 problem. Past problems can be added by name.
+
+**Patterns:** the page lists the NeetCode 150 roadmap and every problem on
+[Sean Prashad's LeetCode Patterns](https://seanprashad.com/leetcode-patterns/), each under one NeetCode
+roadmap pattern (`client/public/pattern-list.json`), with whether you've attempted it. Problems you add
+or move to another pattern are saved in the Redis hash `lc:patterns` via `/api/patterns`.
 
 Data saved before this used LeetCode numbers. The first load after the switch converts it once
 (`api/_lib/legacy.js`): each number becomes a NeetCode slug, from the old matches in `lc:ncmap`
@@ -63,6 +68,15 @@ pattern (no problem statements). To refresh it:
 git clone --depth 1 https://github.com/neetcode-gh/leetcode.git neetcode-gh
 python3 client/scripts/build_neetcode_catalog.py neetcode-gh client/public/leetcode-catalog.json client/public/neetcode-catalog.json
 ```
+
+To refresh the pattern list (after the catalog above):
+
+```sh
+git clone --depth 1 https://github.com/seanprashad/leetcode-patterns.git leetcode-patterns
+python3 client/scripts/build_pattern_list.py neetcode-gh leetcode-patterns client/public/leetcode-catalog.json client/public/neetcode-catalog.json client/public/pattern-list.json
+```
+
+The script fails if a new problem on Sean's list has no pattern; add it to `PATTERN` in the script.
 
 `client/public/leetcode-catalog.json` (LeetCode problem metadata) is only read by the server, to
 convert old LeetCode-numbered data. `client/scripts/build_leetcode_catalog.py` rebuilds it.

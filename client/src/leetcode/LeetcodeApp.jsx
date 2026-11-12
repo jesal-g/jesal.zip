@@ -17,6 +17,7 @@ import * as api from "./api";
 import { clearLegacy, loadLegacy, newerRecords, parseBackup, toBackup } from "./storage";
 import { describe, useCatalog } from "./catalog";
 import ProblemSearch from "./ProblemSearch";
+import PatternWindow from "./PatternWindow";
 
 const ReactiveBackground = lazy(() => import("../components/ReactiveBackground"));
 
@@ -86,6 +87,7 @@ const LeetcodeApp = () => {
   const [brk, setBrk] = useState(null); // { start } when a break is scheduled or active
   const [breakStart, setBreakStart] = useState("");
   const [inbox, setInbox] = useState([]);
+  const [customPatterns, setCustomPatterns] = useState({});
   const [syncNote, setSyncNote] = useState("");
 
   const loadInbox = async (force = false) => {
@@ -107,6 +109,7 @@ const LeetcodeApp = () => {
       setAuth("in");
       loadInbox();
       api.getSettings().then((st) => setBrk(st.break)).catch(() => {});
+      api.getPatterns().then(setCustomPatterns).catch(() => {});
     } catch (e) {
       if (e.status === 401) setAuth("out");
       else setLoadError(e.message);
@@ -252,6 +255,35 @@ const LeetcodeApp = () => {
     } catch (e) {
       setToast(`Not added: ${e.message}`);
       return false;
+    }
+  };
+
+  // Pattern list: log a problem, or put one under a pattern
+  const logFromPatterns = (p) => {
+    setPicked({ id: p.id, site: p.site });
+    document.getElementById("log-attempt")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  const setProblemPattern = async (p, pattern) => {
+    const before = customPatterns;
+    setCustomPatterns({ ...before, [p.id]: { id: p.id, site: p.site || "neetcode", pattern } });
+    try {
+      await api.setPattern(p.id, p.site || "neetcode", pattern);
+      setToast(`${titleOf(p)} is under ${pattern}`);
+    } catch (e) {
+      setCustomPatterns(before);
+      setToast(`Not saved: ${e.message}`);
+    }
+  };
+  const resetProblemPattern = async (p) => {
+    const before = customPatterns;
+    const next = { ...before };
+    delete next[p.id];
+    setCustomPatterns(next);
+    try {
+      await api.resetPattern(p.id);
+    } catch (e) {
+      setCustomPatterns(before);
+      setToast(`Not saved: ${e.message}`);
     }
   };
 
@@ -532,6 +564,7 @@ const LeetcodeApp = () => {
           )}
         </Window>
 
+        <div id="log-attempt">
         <Window width="w-full" height="h-auto" title="➕ log_attempt.sh">
           <div className="grid gap-3">
             <div className="grid sm:grid-cols-2 gap-3 items-start">
@@ -579,6 +612,18 @@ const LeetcodeApp = () => {
             </div>
           </div>
         </Window>
+
+        </div>
+
+        <PatternWindow
+          catalog={catalog}
+          problems={problems}
+          custom={customPatterns}
+          today={today}
+          onLog={logFromPatterns}
+          onSetPattern={setProblemPattern}
+          onResetPattern={resetProblemPattern}
+        />
 
         <Window width="w-full" height="h-auto" title="🗓️ schedule.ics (next 30 days)">
           {scheduleDays.length === 0 ? (

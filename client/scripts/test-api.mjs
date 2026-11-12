@@ -53,6 +53,7 @@ const problems = (await import(`${API}/problems.js`)).default;
 const session = (await import(`${API}/session.js`)).default;
 const inbox = (await import(`${API}/inbox.js`)).default;
 const settings = (await import(`${API}/settings.js`)).default;
+const patterns = (await import(`${API}/patterns.js`)).default;
 function call(handler, { method = "GET", body, query, cookie, ip = "1.1.1.1" } = {}) {
   return new Promise((resolve) => {
     const res = { headers: {}, statusCode: 200, setHeader(k, v) { this.headers[k] = v; },
@@ -113,4 +114,11 @@ r = await call(settings, { cookie }); assert(r.data.break?.start === "2026-10-15
 r = await call(settings, { method: "PUT", body: { break: { start: "soon" } }, cookie }); assert(r.status === 400, "bad break date rejected");
 r = await call(settings, { method: "PUT", body: { break: null }, cookie }); assert(r.data.break === null, "end the break");
 r = await call(settings); assert(r.status === 401, "settings need sign-in");
+r = await call(patterns, { cookie }); assert(r.status === 200 && Object.keys(r.data.custom).length === 0, "no custom patterns by default");
+r = await call(patterns, { method: "PUT", body: { id: "jump-game", pattern: "  My   Greedy " }, cookie }); assert(r.data.pattern === "My Greedy" && r.data.site === "neetcode", "add a problem under a pattern");
+r = await call(patterns, { method: "PUT", body: { id: "jump-game", pattern: "" }, cookie }); assert(r.status === 400, "empty pattern rejected");
+r = await call(patterns, { method: "PUT", body: { id: "Bad Id", pattern: "Greedy" }, cookie }); assert(r.status === 400, "bad id rejected");
+r = await call(patterns, { cookie }); assert(r.data.custom["jump-game"]?.pattern === "My Greedy", "custom pattern remembered");
+r = await call(patterns, { method: "DELETE", query: { id: "jump-game" }, cookie }); r = await call(patterns, { cookie }); assert(!r.data.custom["jump-game"], "undo a custom pattern");
+r = await call(patterns); assert(r.status === 401, "patterns need sign-in");
 console.log("all API checks passed");
